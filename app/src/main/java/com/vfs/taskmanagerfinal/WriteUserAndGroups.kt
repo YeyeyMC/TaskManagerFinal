@@ -48,10 +48,6 @@ fun writeGroups (group: Group)
             .child("groups")
             .child(group.name)
             .setValue(groupData)
-
-        Cloud.db.getReference("groups")
-            .child(group.name)
-            .setValue(group)
     }
 }
 
@@ -89,61 +85,75 @@ fun deleteGroups (group: Group)
 fun readGroups (adapter: GroupsAdapter? = null)
 {
     Cloud.auth.currentUser?.let {
+        // Read private user groups
         Cloud.db.reference
             .child("users")
             .child(it.uid)
             .child("groups")
             .addValueEventListener(object : ValueEventListener {
                 override fun onDataChange(snapshot: DataSnapshot) {
-                    AppData.groups.clear()
-
-                    if (snapshot.exists()) {
-                        for (groupSnapshot in snapshot.children) {
-                            val name = groupSnapshot.child("name").getValue(String::class.java) ?: ""
-
-                            val tasks = mutableListOf<Task>()
-                            groupSnapshot.child("tasks").children.forEach { taskSnap ->
-                                taskSnap.getValue(Task::class.java)?.let { tasks.add(it) }
-                            }
-
-                            AppData.groups.add(Group(name, tasks))
-                        }
-                    }
-                    adapter?.notifyDataSetChanged()
+                    // We only clear if we are starting a fresh read or managing both nodes
+                    // For simplicity, let's just clear and rebuild the list from both nodes
+                    refreshAllGroups(adapter)
                 }
-
                 override fun onCancelled(error: DatabaseError) {}
             })
 
+        // Read public groups
         Cloud.db.reference
-            .child("groups")
+            .child("public_groups")
             .addValueEventListener(object : ValueEventListener {
                 override fun onDataChange(snapshot: DataSnapshot) {
-
-                    if (snapshot.exists()) {
-                        for (groupSnapshot in snapshot.children) {
-                            val name = groupSnapshot.child("name").getValue(String::class.java) ?: ""
-
-                            val tasks = mutableListOf<Task>()
-                            groupSnapshot.child("tasks").children.forEach { taskSnap ->
-                                taskSnap.getValue(Task::class.java)?.let { tasks.add(it) }
-                            }
-
-                            AppData.groups.add(Group(name, tasks))
-                        }
-                    }
-                    adapter?.notifyDataSetChanged()
+                    refreshAllGroups(adapter)
                 }
-
-                override fun onCancelled(error: DatabaseError) {
-
-                }
+                override fun onCancelled(error: DatabaseError) {}
             })
     }
 }
 
+private fun refreshAllGroups(adapter: GroupsAdapter?) {
+    val currentUser = Cloud.auth.currentUser ?: return
+    
+    // First, fetch private groups
+    Cloud.db.reference.child("users").child(currentUser.uid).child("groups").get().addOnSuccessListener { privateSnap ->
+        val allGroups = mutableListOf<Group>()
+        
+        if (privateSnap.exists()) {
+            for (groupSnap in privateSnap.children) {
+                parseGroup(groupSnap)?.let { allGroups.add(it) }
+            }
+        }
+        
+        // Then, fetch public groups
+        Cloud.db.reference.child("public_groups").get().addOnSuccessListener { publicSnap ->
+            if (publicSnap.exists()) {
+                for (groupSnap in publicSnap.children) {
+                    val publicGroup = parseGroup(groupSnap)
+                    // Avoid duplicates if a private group was shared
+                    if (publicGroup != null && allGroups.none { it.name == publicGroup.name }) {
+                        allGroups.add(publicGroup)
+                    }
+                }
+            }
+            AppData.groups.clear()
+            AppData.groups.addAll(allGroups)
+            adapter?.notifyDataSetChanged()
+        }
+    }
+}
+
+private fun parseGroup(snapshot: DataSnapshot): Group? {
+    val name = snapshot.child("name").getValue(String::class.java) ?: return null
+    val tasks = mutableListOf<Task>()
+    snapshot.child("tasks").children.forEach { taskSnap ->
+        taskSnap.getValue(Task::class.java)?.let { tasks.add(it) }
+    }
+    return Group(name, tasks)
+}
+
 fun writeTasks (task: Task, group: Group)
 {
+    // Try updating in private user node
     Cloud.auth.currentUser?.let {
         Cloud.db.getReference("users")
             .child(it.uid)
@@ -153,6 +163,12 @@ fun writeTasks (task: Task, group: Group)
             .child(task.name)
             .setValue(task)
     }
+    // Also try updating in public node if it exists there
+    Cloud.db.getReference("public_groups")
+        .child(group.name)
+        .child("tasks")
+        .child(task.name)
+        .setValue(task)
 }
 
 fun editTasks (task: Task, group: Group, oldTaskName: String)
@@ -167,9 +183,16 @@ fun editTasks (task: Task, group: Group, oldTaskName: String)
         if (task.name != oldTaskName) {
             myRef.child(oldTaskName).removeValue()
         }
-
         myRef.child(task.name).setValue(task)
     }
+    
+    val publicRef = Cloud.db.getReference("public_groups")
+        .child(group.name)
+        .child("tasks")
+    if (task.name != oldTaskName) {
+        publicRef.child(oldTaskName).removeValue()
+    }
+    publicRef.child(task.name).setValue(task)
 }
 
 fun deleteTasks (task: Task, group: Group)
@@ -183,6 +206,11 @@ fun deleteTasks (task: Task, group: Group)
             .child(task.name)
             .removeValue()
     }
+    Cloud.db.getReference("public_groups")
+        .child(group.name)
+        .child("tasks")
+        .child(task.name)
+        .removeValue()
 }
 
 fun updateCheckBoxTask (task: Task, group: Group)
@@ -197,6 +225,12 @@ fun updateCheckBoxTask (task: Task, group: Group)
             .child("completed")
             .setValue(task.completed)
     }
+    Cloud.db.getReference("public_groups")
+        .child(group.name)
+        .child("tasks")
+        .child(task.name)
+        .child("completed")
+        .setValue(task.completed)
 }
 
 fun clearAppData()

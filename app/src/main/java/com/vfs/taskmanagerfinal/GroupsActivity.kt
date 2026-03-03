@@ -1,25 +1,18 @@
 package com.vfs.taskmanagerfinal
 
 import android.content.Intent
-import android.graphics.Color
 import android.os.Bundle
-import android.util.Log
-import android.view.Gravity
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.PopupMenu
-import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.database.DataSnapshot
-import com.google.firebase.database.DatabaseError
-import com.google.firebase.database.DatabaseReference
-import com.google.firebase.database.ValueEventListener
 
 class GroupsActivity : AppCompatActivity(), GroupListener
 {
@@ -96,16 +89,18 @@ class GroupsActivity : AppCompatActivity(), GroupListener
     // Pop-up menu for groups
     override fun groupLongClicked(index: Int, view: View, group: Group)
     {
-        val popupMenu = PopupMenu(this, view)
-        popupMenu.menuInflater.inflate(R.menu.popup_menu, popupMenu.menu)
+        val popupGroupsMenu = PopupMenu(this, view)
+        popupGroupsMenu.menuInflater.inflate(R.menu.popupgroups_menu, popupGroupsMenu.menu)
 
-        val editItem = popupMenu.menu.findItem(R.id.editTextView_id)
-        val deleteItem = popupMenu.menu.findItem(R.id.deleteTextView_id)
+        val editItem = popupGroupsMenu.menu.findItem(R.id.editTextView_id)
+        val deleteItem = popupGroupsMenu.menu.findItem(R.id.deleteTextView_id)
+        val shareItem = popupGroupsMenu.menu.findItem(R.id.shareTextView_id)
 
         editItem.title = "Edit Group"
         deleteItem.title = "Delete Group"
+        shareItem.title = "Share Group"
 
-        popupMenu.setOnMenuItemClickListener { menuItem ->
+        popupGroupsMenu.setOnMenuItemClickListener { menuItem ->
             when (menuItem.itemId)
             {
                 R.id.editTextView_id ->
@@ -156,10 +151,18 @@ class GroupsActivity : AppCompatActivity(), GroupListener
                         }
                     true
                 }
+                R.id.shareTextView_id ->
+                {
+                    shareGroups(group)
+
+                    Toast.makeText(this, "Group shared!", Toast.LENGTH_SHORT).show()
+
+                    true
+                }
                 else -> false
             }
         }
-        popupMenu.show()
+        popupGroupsMenu.show()
     }
 
     // Goes to the tasks activity layout
